@@ -1,0 +1,83 @@
+  public RSAParameters getRsaParam()
+        {
+            // записываем наш публичный и приватный ключ 
+            RSAParameters RsaParam = new RSAParameters();
+            List<Settings> data = db.settings.ToList();
+            string param = data.LastOrDefault().keysRSAParam;
+            RsaKeyValue model = getRsaParam(param);
+
+            RsaParam.Modulus = Convert.FromBase64String(model.Modulus);            
+            RsaParam.Exponent = Convert.FromBase64String(model.Exponent);
+            RsaParam.P = Convert.FromBase64String(model.P);
+            RsaParam.Q = Convert.FromBase64String(model.Q);
+            RsaParam.DP = Convert.FromBase64String(model.DP);
+            RsaParam.D = Convert.FromBase64String(model.D);
+            RsaParam.DQ = Convert.FromBase64String(model.DQ);
+            RsaParam.InverseQ = Convert.FromBase64String(model.InverseQ);
+
+            return RsaParam;
+        }
+
+
+        public string getSymmKey()
+        {
+            //ключ шлюза
+            RSACryptoServiceProvider rsa = new RSACryptoServiceProvider();
+            
+            //наши ключи
+            RSACryptoServiceProvider Myrsa = new RSACryptoServiceProvider();
+
+            //наши ключи
+            RSAParameters MyRsaParam = getRsaParam();
+            Myrsa.ImportParameters(MyRsaParam);
+
+
+            //публичный ключ шлюза
+            RSAParameters RsaParam = rsa.ExportParameters(false);
+            string publicKey = keyInfo();
+            publicKey = publicKey.Replace("-----BEGIN PUBLIC KEY-----", "");
+            publicKey = publicKey.Replace("-----END PUBLIC KEY-----", "");
+            RsaParam.Modulus = Convert.FromBase64String(publicKey);
+            rsa.ImportParameters(RsaParam);
+            
+            // созадние симметричного ключа
+            DESCryptography des = new DESCryptography();
+            byte[] mess = rsa.Encrypt(des.Key, true); 
+            
+            //хэш сумма и подпись своим закрытым ключом
+            SHA1 sha = new SHA1CryptoServiceProvider();
+            byte[] messHash = sha.ComputeHash(mess);
+            RSAPKCS1SignatureFormatter RSAFormatter = new RSAPKCS1SignatureFormatter(Myrsa);
+            RSAFormatter.SetHashAlgorithm("SHA1");
+            byte[] SignedHash = RSAFormatter.CreateSignature(messHash);
+            byte[] len = BitConverter.GetBytes(mess.Length);
+           
+            //создание заголовка
+            ConnectionMode connectionMode = ConnectionMode.Assymmetric;
+            QueryHeader test = new QueryHeader(idClient, len.Length + mess.Length + SignedHash.Length, connectionMode);
+
+            // собираем все в одно сообщение.
+            byte[] res = new byte[test.HeaderData.Length + len.Length + mess.Length + SignedHash.Length];
+            test.HeaderData.CopyTo(res, 0);
+            len.CopyTo(res, 100);
+            mess.CopyTo(res, 104);
+            SignedHash.CopyTo(res, 104 + mess.Length);
+            byte[] data = new byte[2048];
+
+            // устанавливаем соединение и отправляем запрос
+            TcpClient tcpClient = new TcpClient();
+            tcpClient.Connect(ip, port);
+            NetworkStream netStream = tcpClient.GetStream();
+            netStream.Write(res, 0, res.Length);
+
+            // читаем запрос
+            int bytes = netStream.Read(data, 0, data.Length);
+            string answer = Encoding.UTF8.GetString(data);
+            answer = editStr(answer);
+
+            // закрываем соединение
+            netStream.Close();
+            tcpClient.Close();
+
+            return null;
+        }
