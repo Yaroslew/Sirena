@@ -1,6 +1,5 @@
-  public RSAParameters getRsaParam()
+        public RSAParameters getRsaParam()
         {
-            // записываем наш публичный и приватный ключ 
             RSAParameters RsaParam = new RSAParameters();
             List<Settings> data = db.settings.ToList();
             string param = data.LastOrDefault().keysRSAParam;
@@ -25,31 +24,29 @@
             RSACryptoServiceProvider rsa = new RSACryptoServiceProvider();
             
             //наши ключи
-            RSACryptoServiceProvider Myrsa = new RSACryptoServiceProvider();
+            RSACryptoServiceProvider Myrsa = new RSACryptoServiceProvider(1024);
 
             //наши ключи
             RSAParameters MyRsaParam = getRsaParam();
             Myrsa.ImportParameters(MyRsaParam);
+         
 
-
-            //публичный ключ шлюза
+            //публичный ключ шлюза 
             RSAParameters RsaParam = rsa.ExportParameters(false);
             string publicKey = keyInfo();
-            publicKey = publicKey.Replace("-----BEGIN PUBLIC KEY-----", "");
-            publicKey = publicKey.Replace("-----END PUBLIC KEY-----", "");
-            RsaParam.Modulus = Convert.FromBase64String(publicKey);
+            RsaParam = CryptographyHelper.PKCS1PublicKeyToRSAParameters(publicKey);
             rsa.ImportParameters(RsaParam);
             
             // созадние симметричного ключа
             DESCryptography des = new DESCryptography();
-            byte[] mess = rsa.Encrypt(des.Key, true); 
-            
-            //хэш сумма и подпись своим закрытым ключом
-            SHA1 sha = new SHA1CryptoServiceProvider();
-            byte[] messHash = sha.ComputeHash(mess);
-            RSAPKCS1SignatureFormatter RSAFormatter = new RSAPKCS1SignatureFormatter(Myrsa);
-            RSAFormatter.SetHashAlgorithm("SHA1");
-            byte[] SignedHash = RSAFormatter.CreateSignature(messHash);
+
+            RSACryptography sirenaRsa = new RSACryptography();
+            byte[] mess = sirenaRsa.Encrypt(RsaParam, des.Key);
+            byte[] SignedHash = sirenaRsa.Sign(MyRsaParam, mess);
+
+            //string mydebug = getPublicKey(Myrsa);
+            //string debug = getPublicKey(rsa);
+
             byte[] len = BitConverter.GetBytes(mess.Length);
            
             //создание заголовка
@@ -62,8 +59,9 @@
             len.CopyTo(res, 100);
             mess.CopyTo(res, 104);
             SignedHash.CopyTo(res, 104 + mess.Length);
-            byte[] data = new byte[2048];
 
+
+            byte[] data = new byte[2048];
             // устанавливаем соединение и отправляем запрос
             TcpClient tcpClient = new TcpClient();
             tcpClient.Connect(ip, port);
@@ -73,11 +71,10 @@
             // читаем запрос
             int bytes = netStream.Read(data, 0, data.Length);
             string answer = Encoding.UTF8.GetString(data);
-            answer = editStr(answer);
+           
 
             // закрываем соединение
             netStream.Close();
             tcpClient.Close();
 
             return null;
-        }
